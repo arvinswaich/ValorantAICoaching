@@ -1,0 +1,23 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Valorant VOD AI Coach</title>
+    <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+    <main class="container">
+        <h1>Valorant VOD AI Coach</h1>
+        <p>Upload a short Valorant clip to generate a basic review.</p>
+
+        <form action="/upload" method="POST" enctype="multipart/form-data">
+            <input type="file" name="video" accept="video/mp4" required>
+            <button type="submit">Analyze Clip</button>
+        </form>
+
+        <section class="note">
+            <h2>MVP Goal</h2>
+            <p>This version is a foundation. It analyzes basic video info and creates a starter coaching report.</p>
+        </section>
+    </main>
+</body>
+</html>

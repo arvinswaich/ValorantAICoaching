@@ -1,0 +1,6 @@
+.venv/
+__pycache__/ >> .gitignore
+$ echo __pycache__/ >> .gitignore
+echo __pycache__/
+__pycache__/
+uploads/

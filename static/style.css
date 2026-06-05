@@ -1,0 +1,43 @@
+body {
+    font-family: Arial, sans-serif;
+    background: #111827;
+    color: #f9fafb;
+    margin: 0;
+}
+
+.container {
+    width: min(850px, 90%);
+    margin: 50px auto;
+}
+
+h1 {
+    color: #ff4655;
+}
+
+button {
+    background: #ff4655;
+    color: white;
+    border: none;
+    padding: 10px 16px;
+    cursor: pointer;
+    border-radius: 6px;
+}
+
+input {
+    margin: 15px 0;
+}
+
+.card, .note {
+    background: #1f2937;
+    padding: 18px;
+    border-radius: 10px;
+    margin: 18px 0;
+}
+
+a {
+    color: #ff4655;
+}
+
+.error {
+    color: #ff9099;
+}

@@ -1,0 +1,54 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Analysis Report</title>
+    <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+    <main class="container">
+        <h1>Analysis Report</h1>
+
+        {% if report.error %}
+            <p class="error">{{ report.error }}</p>
+        {% else %}
+            <div class="card">
+                <h2>{{ report.video_name }}</h2>
+                <p><strong>Duration:</strong> {{ report.duration_seconds }} seconds</p>
+                <p><strong>FPS:</strong> {{ report.fps }}</p>
+                <p><strong>Sampled Frames:</strong> {{ report.sampled_frames }}</p>
+                <p><strong>Overall Score:</strong> {{ report.overall_score }}/100</p>
+            </div>
+
+            <div class="card">
+                <h2>Metrics</h2>
+                <p><strong>Crosshair Centering Score:</strong> {{ report.metrics.crosshair_centering_score }}/100</p>
+            </div>
+
+            <div class="card">
+                <h2>What You May Be Doing Wrong</h2>
+                <ul>
+                    {% for mistake in report.mistakes %}
+                        <li>{{ mistake }}</li>
+                    {% endfor %}
+                </ul>
+            </div>
+
+            <div class="card">
+                <h2>How To Improve</h2>
+                <ul>
+                    {% for fix in report.fixes %}
+                        <li>{{ fix }}</li>
+                    {% endfor %}
+                </ul>
+            </div>
+
+            <div class="card">
+                <h2>Next Build Goal</h2>
+                <p>{{ report.next_build_goal }}</p>
+            </div>
+        {% endif %}
+
+        <a href="/">Analyze another clip</a>
+    </main>
+</body>
+</html>
