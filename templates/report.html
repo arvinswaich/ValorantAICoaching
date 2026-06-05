@@ -21,7 +21,19 @@
 
             <div class="card">
                 <h2>Metrics</h2>
-                <p><strong>Crosshair Centering Score:</strong> {{ report.metrics.crosshair_centering_score }}/100</p>
+                <p><strong>Crosshair Placement Score:</strong> {{ report.metrics.crosshair_placement_score }}/100</p>
+                <p><strong>Head-Level Score:</strong> {{ report.metrics.head_level_score }}/100</p>
+                <p><strong>Angle Readiness Score:</strong> {{ report.metrics.angle_readiness_score }}/100</p>
+                <p><strong>Crosshair Stability Score:</strong> {{ report.metrics.crosshair_stability_score }}/100</p>
+            </div>
+
+            <div class="card">
+                <h2>What Looks Good</h2>
+                <ul>
+                    {% for strength in report.strengths %}
+                        <li>{{ strength }}</li>
+                    {% endfor %}
+                </ul>
             </div>
 
             <div class="card">
@@ -38,6 +50,29 @@
                 <ul>
                     {% for fix in report.fixes %}
                         <li>{{ fix }}</li>
+                    {% endfor %}
+                </ul>
+            </div>
+
+            {% if report.specific_moments %}
+                <div class="card">
+                    <h2>Specific Moments</h2>
+                    <ul>
+                        {% for moment in report.specific_moments %}
+                            <li>
+                                <strong>{{ moment.timestamp_seconds }}s - {{ moment.issue }}:</strong>
+                                {{ moment.detail }} {{ moment.tip }}
+                            </li>
+                        {% endfor %}
+                    </ul>
+                </div>
+            {% endif %}
+
+            <div class="card">
+                <h2>Practice Drills</h2>
+                <ul>
+                    {% for drill in report.focus_drills %}
+                        <li>{{ drill }}</li>
                     {% endfor %}
                 </ul>
             </div>
