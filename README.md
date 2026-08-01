@@ -1,6 +1,6 @@
 # Valorant VOD AI Foundation
 
-A starter MVP for a Valorant VOD review tool.
+Valorant VOD review tool.
 
 ## What it does right now
 - Lets a user upload a short MP4 clip
