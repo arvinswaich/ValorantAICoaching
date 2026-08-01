@@ -107,22 +107,27 @@ def validate_valorant_video(video_path: str, sample_limit: int = 12) -> dict:
         }
 
     scores = [item["score"] for item in frame_results]
-    positive_frames = sum(score >= 46 for score in scores)
+    positive_frames = sum(item["coherent_hud_score"] >= 58 for item in frame_results)
     positive_ratio = positive_frames / len(scores)
-    team_bar_ratio = sum(item["team_bar_score"] >= 45 for item in frame_results) / len(frame_results)
-    minimap_ratio = sum(item["minimap_score"] >= 42 for item in frame_results) / len(frame_results)
-    bottom_hud_ratio = sum(item["bottom_hud_score"] >= 38 for item in frame_results) / len(frame_results)
+    team_bar_ratio = sum(item["team_bar_score"] >= 58 for item in frame_results) / len(frame_results)
+    portrait_strip_ratio = sum(item["portrait_strip_score"] >= 52 for item in frame_results) / len(frame_results)
+    minimap_ratio = sum(item["minimap_score"] >= 50 for item in frame_results) / len(frame_results)
+    bottom_hud_ratio = sum(item["bottom_hud_score"] >= 50 for item in frame_results) / len(frame_results)
+    coherent_hud_ratio = sum(item["coherent_hud_score"] >= 58 for item in frame_results) / len(frame_results)
 
     confidence = _clamp(
-        np.mean(scores) * 0.55
+        np.mean(scores) * 0.50
         + np.percentile(scores, 70) * 0.25
-        + positive_ratio * 20
+        + coherent_hud_ratio * 25
     )
-    has_repeated_hud = sum(
-        ratio >= 0.30
-        for ratio in (team_bar_ratio, minimap_ratio, bottom_hud_ratio)
-    ) >= 2
-    is_valorant = confidence >= 52 and positive_ratio >= 0.35 and has_repeated_hud
+    has_repeated_hud = (
+        team_bar_ratio >= 0.50
+        and portrait_strip_ratio >= 0.42
+        and minimap_ratio >= 0.42
+        and bottom_hud_ratio >= 0.42
+        and coherent_hud_ratio >= 0.42
+    )
+    is_valorant = confidence >= 61 and positive_ratio >= 0.42 and has_repeated_hud
 
     if is_valorant:
         reason = "Repeated Valorant HUD patterns were detected across the clip."
@@ -140,8 +145,10 @@ def validate_valorant_video(video_path: str, sample_limit: int = 12) -> dict:
         "evidence": {
             "positive_frame_ratio": round(positive_ratio, 3),
             "team_bar_ratio": round(team_bar_ratio, 3),
+            "portrait_strip_ratio": round(portrait_strip_ratio, 3),
             "minimap_ratio": round(minimap_ratio, 3),
             "bottom_hud_ratio": round(bottom_hud_ratio, 3),
+            "coherent_hud_ratio": round(coherent_hud_ratio, 3),
         },
     }
 
@@ -155,9 +162,27 @@ def score_valorant_hud(frame) -> dict:
     right_team = top_bar[:, top_bar.shape[1] // 2:]
     teal_ratio = _color_ratio(left_team, "teal")
     red_ratio = _color_ratio(right_team, "red")
+    team_color_score = _clamp(
+        min(1.0, teal_ratio / 0.009) * 50
+        + min(1.0, red_ratio / 0.009) * 50
+    )
+
+    left_portraits = frame[0:int(height * 0.12), int(width * 0.23):int(width * 0.46)]
+    right_portraits = frame[0:int(height * 0.12), int(width * 0.54):int(width * 0.77)]
+    left_slots = _active_hud_slots(left_portraits, 5)
+    right_slots = _active_hud_slots(right_portraits, 5)
+    slot_balance = max(0, 100 - abs(left_slots - right_slots) * 24)
+    portrait_strip_score = _clamp(
+        min(left_slots, right_slots) / 4 * 78
+        + slot_balance * 0.22
+    )
+
+    timer = frame[0:int(height * 0.115), int(width * 0.455):int(width * 0.545)]
+    timer_detail_score = _hud_detail_score(timer, target_edge_ratio=0.075, target_bright_ratio=0.035)
     team_bar_score = _clamp(
-        min(1.0, teal_ratio / 0.012) * 50
-        + min(1.0, red_ratio / 0.012) * 50
+        team_color_score * 0.55
+        + portrait_strip_score * 0.30
+        + timer_detail_score * 0.15
     )
 
     minimap = frame[
@@ -172,23 +197,35 @@ def score_valorant_hud(frame) -> dict:
         (minimap_hsv[:, :, 1] < 75) & (minimap_hsv[:, :, 2] > 115)
     ) / max(1, minimap_hsv.shape[0] * minimap_hsv.shape[1])
     line_count = _line_count(minimap_edges, min_length=max(12, width // 90))
+    minimap_contrast = float(minimap_gray.std())
     minimap_score = _clamp(
-        min(1.0, edge_ratio / 0.085) * 38
-        + min(1.0, neutral_bright_ratio / 0.22) * 27
-        + min(1.0, line_count / 35) * 35
+        min(1.0, edge_ratio / 0.075) * 32
+        + min(1.0, neutral_bright_ratio / 0.15) * 24
+        + min(1.0, line_count / 28) * 26
+        + min(1.0, minimap_contrast / 42) * 18
     )
 
-    bottom = hsv[int(height * 0.80):height, int(width * 0.03):int(width * 0.97)]
-    bottom_teal = _color_ratio(bottom, "teal")
-    bottom_white = np.count_nonzero(
-        (bottom[:, :, 1] < 65) & (bottom[:, :, 2] > 175)
-    ) / max(1, bottom.shape[0] * bottom.shape[1])
-    bottom_edges = cv2.Canny(cv2.cvtColor(frame[int(height * 0.80):height], cv2.COLOR_BGR2GRAY), 60, 150)
-    bottom_edge_ratio = np.count_nonzero(bottom_edges) / max(1, bottom_edges.size)
+    health_panel = frame[
+        int(height * 0.86):int(height * 0.99),
+        int(width * 0.20):int(width * 0.36),
+    ]
+    ability_panel = frame[
+        int(height * 0.82):int(height * 0.995),
+        int(width * 0.37):int(width * 0.63),
+    ]
+    ammo_panel = frame[
+        int(height * 0.82):int(height * 0.99),
+        int(width * 0.75):int(width * 0.94),
+    ]
+    health_score = _hud_detail_score(health_panel, 0.060, 0.025)
+    ammo_score = _hud_detail_score(ammo_panel, 0.060, 0.022)
+    ability_detail_score = _hud_detail_score(ability_panel, 0.070, 0.022)
+    ability_slots = _active_hud_slots(ability_panel, 4)
+    ability_score = _clamp(ability_detail_score * 0.45 + min(1.0, ability_slots / 3) * 55)
     bottom_hud_score = _clamp(
-        min(1.0, bottom_teal / 0.008) * 38
-        + min(1.0, bottom_white / 0.025) * 34
-        + min(1.0, bottom_edge_ratio / 0.075) * 28
+        health_score * 0.30
+        + ability_score * 0.42
+        + ammo_score * 0.28
     )
 
     center = frame[
@@ -210,19 +247,31 @@ def score_valorant_hud(frame) -> dict:
 
     aspect_ratio = width / max(1, height)
     aspect_score = 100 if 1.55 <= aspect_ratio <= 2.0 else 25
-    score = (
-        team_bar_score * 0.34
-        + minimap_score * 0.28
-        + bottom_hud_score * 0.25
-        + crosshair_score * 0.08
+    essential_scores = sorted((team_bar_score, portrait_strip_score, minimap_score, bottom_hud_score))
+    coherent_hud_score = _clamp(
+        np.mean(essential_scores[:3]) * 0.82
+        + essential_scores[3] * 0.13
         + aspect_score * 0.05
+    )
+    score = (
+        team_bar_score * 0.25
+        + portrait_strip_score * 0.20
+        + minimap_score * 0.25
+        + bottom_hud_score * 0.25
+        + crosshair_score * 0.05
     )
 
     return {
         "score": round(_clamp(score), 2),
+        "coherent_hud_score": round(coherent_hud_score, 2),
         "team_bar_score": round(team_bar_score, 2),
+        "portrait_strip_score": round(portrait_strip_score, 2),
+        "timer_score": round(timer_detail_score, 2),
         "minimap_score": round(minimap_score, 2),
         "bottom_hud_score": round(bottom_hud_score, 2),
+        "health_score": round(health_score, 2),
+        "ability_score": round(ability_score, 2),
+        "ammo_score": round(ammo_score, 2),
         "crosshair_score": round(crosshair_score, 2),
     }
 
@@ -399,6 +448,48 @@ def _deduplicate_contacts(contacts: list) -> list:
         elif contact["crosshair_distance_pixels"] < selected[-1]["crosshair_distance_pixels"]:
             selected[-1] = contact
     return selected
+
+
+def _hud_detail_score(region, target_edge_ratio: float, target_bright_ratio: float) -> float:
+    if region.size == 0:
+        return 0
+    gray = cv2.cvtColor(region, cv2.COLOR_BGR2GRAY)
+    hsv = cv2.cvtColor(region, cv2.COLOR_BGR2HSV)
+    edges = cv2.Canny(gray, 60, 150)
+    edge_ratio = np.count_nonzero(edges) / max(1, edges.size)
+    bright_neutral = (hsv[:, :, 1] < 80) & (hsv[:, :, 2] > 165)
+    bright_colored = (hsv[:, :, 1] > 105) & (hsv[:, :, 2] > 125)
+    hud_pixel_ratio = np.count_nonzero(bright_neutral | bright_colored) / max(1, gray.size)
+    contrast = float(gray.std())
+    return _clamp(
+        min(1.0, edge_ratio / target_edge_ratio) * 45
+        + min(1.0, hud_pixel_ratio / target_bright_ratio) * 35
+        + min(1.0, contrast / 48) * 20
+    )
+
+
+def _active_hud_slots(region, slot_count: int) -> int:
+    if region.size == 0 or slot_count <= 0:
+        return 0
+    slot_width = region.shape[1] / slot_count
+    active_slots = 0
+    for slot_index in range(slot_count):
+        start = int(round(slot_index * slot_width))
+        end = int(round((slot_index + 1) * slot_width))
+        slot = region[:, start:end]
+        if slot.size == 0:
+            continue
+        gray = cv2.cvtColor(slot, cv2.COLOR_BGR2GRAY)
+        hsv = cv2.cvtColor(slot, cv2.COLOR_BGR2HSV)
+        edge_ratio = np.count_nonzero(cv2.Canny(gray, 65, 155)) / max(1, gray.size)
+        visible_pixels = (
+            ((hsv[:, :, 1] < 85) & (hsv[:, :, 2] > 145))
+            | ((hsv[:, :, 1] > 95) & (hsv[:, :, 2] > 115))
+        )
+        visible_ratio = np.count_nonzero(visible_pixels) / max(1, gray.size)
+        if edge_ratio >= 0.022 and visible_ratio >= 0.018 and gray.std() >= 14:
+            active_slots += 1
+    return active_slots
 
 
 def _color_mask(hsv, color: str, saturation: int = 55, value: int = 90):
