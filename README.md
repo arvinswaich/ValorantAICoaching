@@ -1,49 +1,51 @@
 # Valorant VOD Coach
 
-A local Windows desktop app that reviews Valorant gameplay and turns crosshair-placement signals into specific coaching feedback.
+Turn your Valorant gameplay into clear, focused coaching feedback.
 
-## What it analyzes
+Valorant VOD Coach is a Windows desktop app that reviews recorded gameplay and helps players build better crosshair-placement habits. It highlights repeatable mistakes, calls out useful moments by timestamp, and creates a practical training plan for the next session.
 
-- Crosshair placement around playable geometry
-- Likely head-level discipline
-- Corner and angle readiness
-- Crosshair stability while moving
-- Timestamped moments that need attention
-- Focused fixes and practice drills
+## Download
 
-The current computer-vision model is heuristic. It evaluates what is around the center of the frame, but it does not yet identify enemy models or confirm exact kill and death moments.
+[Download the latest Windows release](https://github.com/arvinswaich/ValorantAICoaching/releases/latest)
 
-## Run the desktop app
+1. Download `ValorantVODCoach.exe` from the latest release.
+2. Open the app and choose a recorded Valorant VOD.
+3. Select **Analyze VOD** to generate your review.
 
-```powershell
-pip install -r requirements.txt
-python app.py
-```
+No account, installation wizard, or web browser is required.
 
-Everything runs locally. No web server, account, upload, or domain is required.
+## Coaching Report
 
-## Build a shareable Windows app
+Each review includes:
 
-```powershell
-.\build_windows.ps1
-```
+- An overall crosshair-placement score
+- Head-level discipline feedback
+- Angle and corner-readiness analysis
+- Crosshair-stability analysis
+- Timestamped moments worth reviewing
+- Specific coaching fixes and practice drills
+- A report that can be exported for later review
 
-The finished app is created at:
+## Supported Videos
 
-```text
-dist\ValorantVODCoach.exe
-```
+- MP4
+- MOV
+- MKV
+- AVI
+- WebM
 
-You can share that `.exe` with another Windows user. Windows SmartScreen may show an unrecognized-app warning because the executable is not code-signed.
+Windows 10 or Windows 11 is required.
 
-## Project structure
+## Privacy
 
-- `app.py` - desktop entry point
-- `desktop_app.py` - native Windows interface
-- `analyzer/` - video analysis and coaching rules
-- `build_windows.ps1` - executable build script
-- `templates/` and `static/` - legacy browser UI retained for reference
+Your gameplay is analyzed locally on your computer. VODs are not uploaded to a server or shared with anyone.
 
-## Next accuracy upgrade
+## Early Release Notice
 
-Add a trained Valorant enemy detector and contact-event detection. That would let the coach measure crosshair-to-head distance at the exact moment an opponent appears.
+This is an early computer-vision release focused on crosshair placement. Results are coaching estimates and may vary with video quality, resolution, HUD settings, map geometry, and spectator overlays.
+
+Windows may display an unrecognized-app warning because this release is not yet digitally code-signed.
+
+## Feedback
+
+Found an issue or have an idea for a better coaching feature? [Open a GitHub issue](https://github.com/arvinswaich/ValorantAICoaching/issues).
