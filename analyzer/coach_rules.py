@@ -11,12 +11,20 @@ def generate_coaching_report(data: dict) -> dict:
     sampled_frames = max(1, data.get("sampled_frames", 1))
     issue_counts = data.get("issue_counts", {})
     observations = data.get("frame_observations", [])
+    contact_count = data.get("opponent_contact_count", 0)
+    average_head_distance = data.get("average_crosshair_to_head_pixels")
+    average_head_distance_percent = data.get("average_crosshair_to_head_percent")
+    best_head_distance = data.get("best_crosshair_to_head_pixels")
+    estimated_kills = data.get("estimated_kills", [])
+    estimated_deaths = data.get("estimated_deaths", [])
+    contact_score = _contact_score(average_head_distance_percent)
 
     mistakes = []
     fixes = []
     strengths = []
     focus_drills = []
     specific_moments = _specific_moments(observations)
+    combat_moments = _combat_moments(data.get("opponent_contacts", []))
 
     if placement_score >= 70:
         strengths.append("Your crosshair is usually near useful fight geometry instead of floating in empty space.")
@@ -26,6 +34,10 @@ def generate_coaching_report(data: dict) -> dict:
         strengths.append("You are often centering near corners or doorframe-like edges before contact.")
     if stability_score >= 75:
         strengths.append("Your center view stays fairly stable between samples, which helps first-shot readiness.")
+    if contact_score is not None and contact_score >= 78:
+        strengths.append(
+            "At detected opponent contacts, your crosshair was already close to the estimated head position."
+        )
 
     if _issue_rate(issue_counts, "low_floor_aim", sampled_frames) >= 0.18 or head_level_score < 45:
         mistakes.append(
@@ -63,6 +75,17 @@ def generate_coaching_report(data: dict) -> dict:
         )
         focus_drills.append("Range drill: strafe between bots while keeping the crosshair at head height without over-correcting.")
 
+    if contact_score is not None and contact_score < 58:
+        mistakes.append(
+            "At detected opponent contacts, your crosshair needed a large correction before reaching the estimated head position."
+        )
+        fixes.append(
+            "Pre-aim the exact swing path before exposing yourself; use the contact timestamps to compare your crosshair with the opponent's head."
+        )
+        focus_drills.append(
+            "Contact review drill: pause at each detected opponent timestamp and trace the shortest path from crosshair to head."
+        )
+
     if not mistakes:
         mistakes.append("No major crosshair placement issue was detected in the sampled frames.")
         fixes.append("Your next improvement is precision: pre-aim exact swing paths, not just general head height.")
@@ -71,9 +94,14 @@ def generate_coaching_report(data: dict) -> dict:
     if not strengths:
         strengths.append("The clip has enough visual variety to give placement feedback, but the main pattern still needs cleanup.")
 
-    overall_score = min(100, round(
+    base_score = min(100, round(
         placement_score * 0.45 + head_level_score * 0.2 + angle_score * 0.2 + stability_score * 0.15
     ))
+    overall_score = (
+        min(100, round(base_score * 0.78 + contact_score * 0.22))
+        if contact_score is not None
+        else base_score
+    )
 
     return {
         "video_name": data.get("video_name"),
@@ -87,6 +115,7 @@ def generate_coaching_report(data: dict) -> dict:
             "head_level_score": head_level_score,
             "angle_readiness_score": angle_score,
             "crosshair_stability_score": stability_score,
+            "contact_aim_score": contact_score,
         },
         "issue_counts": issue_counts,
         "strengths": strengths,
@@ -94,7 +123,19 @@ def generate_coaching_report(data: dict) -> dict:
         "fixes": fixes,
         "focus_drills": focus_drills,
         "specific_moments": specific_moments,
-        "next_build_goal": "Add enemy detection/OCR so the coach can measure crosshair distance at exact contact, kill, and death moments."
+        "combat_moments": combat_moments,
+        "combat_summary": {
+            "opponent_contact_count": contact_count,
+            "estimated_kill_count": len(estimated_kills),
+            "estimated_death_count": len(estimated_deaths),
+            "average_crosshair_to_head_pixels": average_head_distance,
+            "best_crosshair_to_head_pixels": best_head_distance,
+        },
+        "valorant_validation": data.get("valorant_validation"),
+        "analysis_note": (
+            "Opponent, head, kill, and death results are confidence-based computer-vision estimates. "
+            "Review the timestamps before treating an event as confirmed."
+        ),
     }
 
 
@@ -151,3 +192,40 @@ def _moment_tip(issue: str) -> str:
         "unstable_crosshair": "Slow the clear down and use your strafe to adjust the angle.",
     }
     return tips.get(issue, "Keep the crosshair tied to the most likely threat angle.")
+
+
+def _contact_score(distance_percent):
+    if distance_percent is None:
+        return None
+    return round(max(0, min(100, 100 - distance_percent * 8)), 2)
+
+
+def _combat_moments(contacts: list) -> list:
+    moments = []
+    for contact in sorted(
+        contacts,
+        key=lambda item: item.get("crosshair_distance_pixels", 0),
+        reverse=True,
+    )[:6]:
+        distance = contact.get("crosshair_distance_pixels", 0)
+        if distance <= 35:
+            label = "Crosshair near estimated head"
+            tip = "This contact required only a small correction."
+        elif distance <= 90:
+            label = "Moderate contact correction"
+            tip = "Tighten the pre-aim so the opponent appears closer to center screen."
+        else:
+            label = "Large contact correction"
+            tip = "Revisit the angle and pre-place the crosshair on the expected swing path."
+        moments.append({
+            "timestamp_seconds": contact.get("timestamp_seconds", 0),
+            "issue": label,
+            "distance_pixels": distance,
+            "confidence": contact.get("confidence", 0),
+            "detail": (
+                f"Estimated head offset: {round(distance)} px "
+                f"({round(contact.get('confidence', 0))}% confidence)."
+            ),
+            "tip": tip,
+        })
+    return moments

@@ -2,6 +2,11 @@ import cv2
 import numpy as np
 from pathlib import Path
 from analyzer.coach_rules import generate_coaching_report
+from analyzer.valorant_vision import (
+    CombatEventTracker,
+    summarize_combat_events,
+    validate_valorant_video,
+)
 
 def analyze_video(video_path: str) -> dict:
     """
@@ -25,6 +30,19 @@ def analyze_video(video_path: str) -> dict:
     frame_count = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
     duration = round(frame_count / fps, 2) if fps else 0
 
+    validation = validate_valorant_video(video_path)
+    if not validation["is_valorant"]:
+        cap.release()
+        return {
+            "error": (
+                "This clip does not look like supported Valorant gameplay, so no score was generated. "
+                "Use a first-person Valorant recording with the standard gameplay HUD visible."
+            ),
+            "error_code": "not_valorant",
+            "video_name": Path(video_path).name,
+            "validation": validation,
+        }
+
     sampled_frames = 0
     placement_scores = []
     head_level_scores = []
@@ -35,17 +53,24 @@ def analyze_video(video_path: str) -> dict:
 
     frame_index = 0
     previous_center_gray = None
-    frame_step = max(1, int(fps / 2)) if fps else 30
+    placement_frame_step = max(1, int(fps / 2)) if fps else 15
+    combat_frame_step = max(1, int(fps / 4)) if fps else 8
+    combat_tracker = CombatEventTracker()
 
     while True:
         success, frame = cap.read()
         if not success:
             break
 
-        # Analyze about 2 frames per second so short VODs still produce useful feedback.
-        if frame_index % frame_step == 0:
+        timestamp = round(frame_index / fps, 2) if fps else 0
+
+        # Combat cues are brief, so inspect about 4 frames per second.
+        if frame_index % combat_frame_step == 0:
+            combat_tracker.update(frame, timestamp)
+
+        # Placement analysis at 2 frames per second keeps longer reviews responsive.
+        if frame_index % placement_frame_step == 0:
             sampled_frames += 1
-            timestamp = round(frame_index / fps, 2) if fps else 0
             placement = estimate_crosshair_placement(frame, previous_center_gray)
             previous_center_gray = placement.pop("_center_gray")
 
@@ -65,6 +90,7 @@ def analyze_video(video_path: str) -> dict:
     avg_head_level_score = _average(head_level_scores)
     avg_angle_readiness_score = _average(angle_readiness_scores)
     avg_stability_score = _average(stability_scores)
+    combat_data = summarize_combat_events(combat_tracker)
 
     raw_data = {
         "video_name": Path(video_path).name,
@@ -79,6 +105,8 @@ def analyze_video(video_path: str) -> dict:
         "crosshair_stability_score": avg_stability_score,
         "issue_counts": issue_counts,
         "frame_observations": frame_observations,
+        "valorant_validation": validation,
+        **combat_data,
     }
 
     coaching_report = generate_coaching_report(raw_data)

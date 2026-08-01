@@ -333,9 +333,13 @@ class ValorantCoachApp:
         self._set_busy(False)
         if result_type == "error" or payload.get("error"):
             error_message = payload if result_type == "error" else payload.get("error")
-            self.status_label.configure(text="Analysis failed")
-            messagebox.showerror(APP_NAME, error_message)
-            self._show_selected_state()
+            if result_type != "error" and payload.get("error_code") == "not_valorant":
+                self.status_label.configure(text="Clip rejected: Valorant HUD not detected")
+                self._show_rejected_state(payload)
+            else:
+                self.status_label.configure(text="Analysis failed")
+                messagebox.showerror(APP_NAME, error_message)
+                self._show_selected_state()
             return
 
         self.current_report = payload
@@ -448,11 +452,54 @@ class ValorantCoachApp:
         ).pack(pady=(8, 7))
         tk.Label(
             center,
-            text="Reading crosshair placement and angle discipline...",
+            text="Verifying Valorant HUD, contacts, and crosshair placement...",
             bg=Palette.SURFACE,
             fg=Palette.MUTED,
             font=("Segoe UI", 10),
         ).pack()
+
+    def _show_rejected_state(self, result):
+        self._clear_content()
+        panel = tk.Frame(
+            self.scroll_area.content,
+            bg=Palette.SURFACE,
+            highlightbackground=Palette.RED,
+            highlightthickness=1,
+        )
+        panel.pack(fill="x", pady=(4, 0))
+        tk.Label(
+            panel,
+            text="CLIP REJECTED",
+            bg=Palette.SURFACE,
+            fg=Palette.RED,
+            font=("Segoe UI Semibold", 9),
+        ).pack(anchor="w", padx=28, pady=(28, 8))
+        tk.Label(
+            panel,
+            text="Supported Valorant gameplay was not detected",
+            bg=Palette.SURFACE,
+            fg=Palette.TEXT,
+            font=("Segoe UI Semibold", 19),
+            wraplength=700,
+            justify="left",
+        ).pack(anchor="w", padx=28)
+        tk.Label(
+            panel,
+            text=result.get("error"),
+            bg=Palette.SURFACE,
+            fg=Palette.MUTED,
+            font=("Segoe UI", 10),
+            wraplength=720,
+            justify="left",
+        ).pack(anchor="w", padx=28, pady=(9, 6))
+        confidence = result.get("validation", {}).get("confidence", 0)
+        tk.Label(
+            panel,
+            text=f"Valorant confidence: {round(confidence)}%",
+            bg=Palette.SURFACE,
+            fg=Palette.AMBER,
+            font=("Segoe UI Semibold", 10),
+        ).pack(anchor="w", padx=28, pady=(0, 28))
 
     def _render_report(self, report):
         self._clear_content()
@@ -499,7 +546,8 @@ class ValorantCoachApp:
         ).pack(anchor="w", padx=24)
         metadata = (
             f"{self._format_duration(report.get('duration_seconds', 0))}  |  "
-            f"{report.get('sampled_frames', 0)} samples  |  {report.get('fps', 0)} FPS"
+            f"{report.get('sampled_frames', 0)} samples  |  {report.get('fps', 0)} FPS  |  "
+            f"Valorant {round(report.get('valorant_validation', {}).get('confidence', 0))}%"
         )
         tk.Label(
             summary,
@@ -525,15 +573,20 @@ class ValorantCoachApp:
             ("Angle readiness", report["metrics"].get("angle_readiness_score", 0), Palette.AMBER),
             ("Stability", report["metrics"].get("crosshair_stability_score", 0), Palette.BLUE),
         ]
+        if report["metrics"].get("contact_aim_score") is not None:
+            metrics.append(("Contact aim", report["metrics"]["contact_aim_score"], Palette.GREEN))
         for column, metric in enumerate(metrics):
             metrics_frame.grid_columnconfigure(column, weight=1, uniform="metric")
-            self._metric_card(metrics_frame, column, *metric)
+            self._metric_card(metrics_frame, column, column == len(metrics) - 1, *metric)
 
+        self._combat_summary(report.get("combat_summary", {}))
         self._section("WHAT LOOKED GOOD", report.get("strengths", []), Palette.GREEN)
         self._section("PRIORITY ISSUES", report.get("mistakes", []), Palette.RED)
         self._section("COACHING FIXES", report.get("fixes", []), Palette.TEAL)
-        self._moment_section(report.get("specific_moments", []))
+        self._moment_section("PLACEMENT TIMELINE", report.get("specific_moments", []))
+        self._moment_section("OPPONENT CONTACTS", report.get("combat_moments", []))
         self._section("PRACTICE PLAN", report.get("focus_drills", []), Palette.AMBER)
+        self._section("ANALYSIS CONFIDENCE", [report.get("analysis_note")], Palette.MUTED)
 
     def _draw_score(self, parent, score):
         canvas = tk.Canvas(parent, width=150, height=122, bg=Palette.SURFACE, highlightthickness=0)
@@ -551,14 +604,14 @@ class ValorantCoachApp:
             font=("Segoe UI Semibold", 8),
         ).pack()
 
-    def _metric_card(self, parent, column, label, value, color):
+    def _metric_card(self, parent, column, is_last, label, value, color):
         card = tk.Frame(
             parent,
             bg=Palette.SURFACE,
             highlightbackground=Palette.BORDER,
             highlightthickness=1,
         )
-        card.grid(row=0, column=column, sticky="nsew", padx=(0 if column == 0 else 5, 0 if column == 3 else 5))
+        card.grid(row=0, column=column, sticky="nsew", padx=(0 if column == 0 else 5, 0 if is_last else 5))
         tk.Label(
             card,
             text=label.upper(),
@@ -582,6 +635,50 @@ class ValorantCoachApp:
         canvas.delete("all")
         canvas.create_rectangle(0, 0, width, 5, fill=Palette.BORDER, outline="")
         canvas.create_rectangle(0, 0, width * max(0, min(100, value)) / 100, 5, fill=color, outline="")
+
+    def _combat_summary(self, summary):
+        frame = tk.Frame(self.scroll_area.content, bg=Palette.WINDOW)
+        frame.pack(fill="x", pady=(0, 21))
+        values = [
+            ("Opponent contacts", summary.get("opponent_contact_count", 0), Palette.BLUE),
+            ("Estimated kills", summary.get("estimated_kill_count", 0), Palette.GREEN),
+            ("Estimated deaths", summary.get("estimated_death_count", 0), Palette.RED),
+            (
+                "Average head offset",
+                f"{round(summary['average_crosshair_to_head_pixels'])} px"
+                if summary.get("average_crosshair_to_head_pixels") is not None
+                else "No contact",
+                Palette.AMBER,
+            ),
+        ]
+        for column, (label, value, accent) in enumerate(values):
+            frame.grid_columnconfigure(column, weight=1, uniform="combat")
+            card = tk.Frame(
+                frame,
+                bg=Palette.SURFACE_ALT,
+                highlightbackground=Palette.BORDER,
+                highlightthickness=1,
+            )
+            card.grid(
+                row=0,
+                column=column,
+                sticky="nsew",
+                padx=(0 if column == 0 else 5, 0 if column == len(values) - 1 else 5),
+            )
+            tk.Label(
+                card,
+                text=label.upper(),
+                bg=Palette.SURFACE_ALT,
+                fg=Palette.MUTED,
+                font=("Segoe UI Semibold", 8),
+            ).pack(anchor="w", padx=15, pady=(13, 3))
+            tk.Label(
+                card,
+                text=str(value),
+                bg=Palette.SURFACE_ALT,
+                fg=accent,
+                font=("Segoe UI Semibold", 17),
+            ).pack(anchor="w", padx=15, pady=(0, 13))
 
     def _section(self, title, items, accent):
         if not items:
@@ -617,7 +714,7 @@ class ValorantCoachApp:
                 wraplength=760,
             ).pack(side="left", fill="x", expand=True, padx=(8, 0), anchor="w")
 
-    def _moment_section(self, moments):
+    def _moment_section(self, title, moments):
         if not moments:
             return
         frame = tk.Frame(
@@ -629,7 +726,7 @@ class ValorantCoachApp:
         frame.pack(fill="x", pady=(0, 14))
         tk.Label(
             frame,
-            text="REVIEW TIMELINE",
+            text=title,
             bg=Palette.SURFACE,
             fg=Palette.BLUE,
             font=("Segoe UI Semibold", 9),
@@ -698,9 +795,22 @@ class ValorantCoachApp:
             "head_level_score": "Head level",
             "angle_readiness_score": "Angle readiness",
             "crosshair_stability_score": "Crosshair stability",
+            "contact_aim_score": "Contact aim",
         }
         for key, label in labels.items():
-            lines.append(f"- {label}: {report.get('metrics', {}).get(key, 0)}/100")
+            value = report.get("metrics", {}).get(key)
+            if value is not None:
+                lines.append(f"- {label}: {value}/100")
+
+        combat = report.get("combat_summary", {})
+        lines.extend((
+            "",
+            "COMBAT EVIDENCE",
+            f"- Opponent contacts: {combat.get('opponent_contact_count', 0)}",
+            f"- Estimated kills: {combat.get('estimated_kill_count', 0)}",
+            f"- Estimated deaths: {combat.get('estimated_death_count', 0)}",
+            f"- Average estimated head offset: {combat.get('average_crosshair_to_head_pixels')} px",
+        ))
 
         sections = (
             ("WHAT LOOKED GOOD", report.get("strengths", [])),
@@ -718,6 +828,13 @@ class ValorantCoachApp:
             for moment in moments:
                 timestamp = ValorantCoachApp._format_timestamp(moment.get("timestamp_seconds", 0))
                 lines.append(f"- {timestamp} | {moment.get('issue')}: {moment.get('detail')} {moment.get('tip')}")
+        combat_moments = report.get("combat_moments", [])
+        if combat_moments:
+            lines.extend(("", "OPPONENT CONTACTS"))
+            for moment in combat_moments:
+                timestamp = ValorantCoachApp._format_timestamp(moment.get("timestamp_seconds", 0))
+                lines.append(f"- {timestamp} | {moment.get('issue')}: {moment.get('detail')} {moment.get('tip')}")
+        lines.extend(("", "ANALYSIS NOTE", report.get("analysis_note", "")))
         return "\n".join(lines) + "\n"
 
     @staticmethod

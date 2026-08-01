@@ -18,10 +18,14 @@ No account, installation wizard, or web browser is required.
 
 Each review includes:
 
+- A Valorant gameplay validation check before scoring
 - An overall crosshair-placement score
 - Head-level discipline feedback
 - Angle and corner-readiness analysis
 - Crosshair-stability analysis
+- Detected opponent-contact timestamps
+- Estimated crosshair-to-head distance at contact
+- Estimated personal kill and death cues
 - Timestamped moments worth reviewing
 - Specific coaching fixes and practice drills
 - A report that can be exported for later review
@@ -42,7 +46,7 @@ Your gameplay is analyzed locally on your computer. VODs are not uploaded to a s
 
 ## Early Release Notice
 
-This is an early computer-vision release focused on crosshair placement. Results are coaching estimates and may vary with video quality, resolution, HUD settings, map geometry, and spectator overlays.
+This is an early computer-vision release. The app rejects clips when it cannot find repeated Valorant HUD evidence, but validation is not perfect. Opponent, head, kill, and death detections are confidence-based estimates and should be checked against the reported timestamps. Results may vary with video quality, resolution, HUD settings, enemy-highlight color, map geometry, and spectator overlays.
 
 Windows may display an unrecognized-app warning because this release is not yet digitally code-signed.
 
