@@ -5,6 +5,16 @@ from pathlib import Path
 from tkinter import filedialog, messagebox, ttk
 
 from analyzer.video_analyzer import analyze_video
+from updater import (
+    APP_VERSION,
+    cleanup_stale_updates,
+    download_update,
+    fetch_update_info,
+    is_packaged_app,
+    launch_update_installer,
+    mark_update_check_complete,
+    should_check_automatically,
+)
 
 
 APP_NAME = "Valorant VOD Coach"
@@ -77,14 +87,20 @@ class ValorantCoachApp:
         self.selected_video = None
         self.current_report = None
         self.result_queue = queue.Queue()
+        self.update_queue = queue.Queue()
+        self.analysis_busy = False
+        self.update_check_running = False
+        self.update_download_running = False
 
-        self.root.title(APP_NAME)
+        self.root.title(f"{APP_NAME} {APP_VERSION}")
         self.root.geometry("1180x780")
         self.root.minsize(1000, 680)
         self.root.configure(bg=Palette.WINDOW)
         self._configure_styles()
         self._build_layout()
         self._show_empty_state()
+        cleanup_stale_updates()
+        self.root.after(1800, self._start_automatic_update_check)
 
     def _configure_styles(self):
         style = ttk.Style()
@@ -224,6 +240,23 @@ class ValorantCoachApp:
         privacy = tk.Frame(self.sidebar, bg=Palette.SIDEBAR)
         privacy.pack(side="bottom", fill="x", padx=22, pady=22)
         tk.Frame(privacy, bg=Palette.BORDER, height=1).pack(fill="x", pady=(0, 16))
+        self.update_button = self._button(
+            privacy,
+            "Check for updates",
+            self.check_for_updates,
+            Palette.SURFACE_ALT,
+            Palette.TEXT,
+            Palette.BORDER,
+        )
+        self.update_button.pack(fill="x", pady=(0, 12), ipady=2)
+        tk.Label(
+            privacy,
+            text=f"VERSION {APP_VERSION}",
+            bg=Palette.SIDEBAR,
+            fg=Palette.MUTED,
+            font=("Segoe UI Semibold", 8),
+            anchor="w",
+        ).pack(fill="x", pady=(0, 12))
         tk.Label(
             privacy,
             text="LOCAL ANALYSIS",
@@ -348,15 +381,132 @@ class ValorantCoachApp:
         self._render_report(payload)
 
     def _set_busy(self, busy):
+        self.analysis_busy = busy
         if busy:
             self.progress.start(10)
             self.select_button.configure(state="disabled")
             self.analyze_button.configure(state="disabled")
             self.export_button.configure(state="disabled")
+            self.update_button.configure(state="disabled")
         else:
             self.progress.stop()
             self.select_button.configure(state="normal")
             self.analyze_button.configure(state="normal" if self.selected_video else "disabled")
+            self.update_button.configure(
+                state="disabled" if self.update_check_running or self.update_download_running else "normal"
+            )
+
+    def _start_automatic_update_check(self):
+        if should_check_automatically():
+            self.check_for_updates(silent=True)
+
+    def check_for_updates(self, silent=False):
+        if self.analysis_busy:
+            if not silent:
+                messagebox.showinfo(APP_NAME, "Finish the current VOD analysis before checking for updates.")
+            return
+        if self.update_check_running or self.update_download_running:
+            return
+        if not is_packaged_app():
+            if not silent:
+                messagebox.showinfo(
+                    APP_NAME,
+                    "Update checks are available in the packaged Windows app.",
+                )
+            return
+
+        self.update_check_running = True
+        self.update_button.configure(state="disabled")
+        if not silent:
+            self.status_label.configure(text="Checking for updates...")
+        threading.Thread(target=self._run_update_check, args=(silent,), daemon=True).start()
+        self.root.after(120, self._poll_update_result)
+
+    def _run_update_check(self, silent):
+        try:
+            update_info = fetch_update_info()
+            mark_update_check_complete()
+            self.update_queue.put(("check_success", update_info, silent))
+        except Exception as exc:
+            self.update_queue.put(("check_error", str(exc), silent))
+
+    def _start_update_download(self, update_info):
+        self.update_download_running = True
+        self.progress.start(10)
+        self.select_button.configure(state="disabled")
+        self.analyze_button.configure(state="disabled")
+        self.export_button.configure(state="disabled")
+        self.update_button.configure(state="disabled")
+        self.status_label.configure(text=f"Downloading version {update_info['latest_version']}...")
+        threading.Thread(
+            target=self._run_update_download,
+            args=(update_info,),
+            daemon=True,
+        ).start()
+        self.root.after(120, self._poll_update_result)
+
+    def _run_update_download(self, update_info):
+        try:
+            update_path = download_update(update_info)
+            self.update_queue.put(("download_success", update_path, False))
+        except Exception as exc:
+            self.update_queue.put(("download_error", str(exc), False))
+
+    def _poll_update_result(self):
+        try:
+            result_type, payload, silent = self.update_queue.get_nowait()
+        except queue.Empty:
+            if self.update_check_running or self.update_download_running:
+                self.root.after(120, self._poll_update_result)
+            return
+
+        if result_type == "check_success":
+            self.update_check_running = False
+            self.update_button.configure(state="normal")
+            if payload["available"]:
+                should_install = messagebox.askyesno(
+                    "Update available",
+                    f"Version {payload['latest_version']} is available. "
+                    f"You have version {APP_VERSION}.\n\nDownload, install, and restart now?",
+                )
+                if should_install:
+                    self._start_update_download(payload)
+                else:
+                    self.status_label.configure(text="Update available when you are ready")
+            elif not silent:
+                self.status_label.configure(text=f"{APP_NAME} is up to date")
+                messagebox.showinfo(APP_NAME, f"You already have the latest version ({APP_VERSION}).")
+            return
+
+        if result_type == "check_error":
+            self.update_check_running = False
+            self.update_button.configure(state="normal")
+            if not silent:
+                self.status_label.configure(text="Could not check for updates")
+                messagebox.showwarning(APP_NAME, f"The update check failed.\n\n{payload}")
+            return
+
+        if result_type == "download_success":
+            self.status_label.configure(text="Installing update and restarting...")
+            try:
+                launch_update_installer(payload)
+            except Exception as exc:
+                self._finish_failed_update(str(exc))
+                return
+            self.root.destroy()
+            return
+
+        self._finish_failed_update(payload)
+
+    def _finish_failed_update(self, error_message):
+        self.update_download_running = False
+        self.progress.stop()
+        self.select_button.configure(state="normal")
+        self.analyze_button.configure(state="normal" if self.selected_video else "disabled")
+        self.export_button.configure(state="normal" if self.current_report else "disabled")
+        self.update_button.configure(state="normal")
+        self.status_label.configure(text="Update failed")
+        messagebox.showerror(APP_NAME, f"The update could not be installed.\n\n{error_message}")
 
     def _clear_content(self):
         for child in self.scroll_area.content.winfo_children():

@@ -14,6 +14,12 @@ Valorant VOD Coach is a Windows desktop app that reviews recorded gameplay and h
 
 No account, installation wizard, or web browser is required.
 
+## Automatic Updates
+
+Starting with version 1.0.1, the packaged app checks GitHub Releases for updates when it opens. When a newer version is available, it can download the verified Windows executable, replace the current app, and restart automatically. You can also select **Check for updates** in the sidebar.
+
+Users of version 1.0.0 need to download version 1.0.1 manually once. Updates released after that can be installed from inside the app.
+
 ## Coaching Report
 
 Each review includes:
